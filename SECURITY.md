@@ -4,19 +4,17 @@
 
 HNewhere is distributed as a single userscript that auto-updates from `main`.
 Only the latest release is supported — there are no maintenance branches, and a
-fix ships as a new version that existing installs pick up automatically.
+fix ships as a version bump that existing installs pick up automatically.
 
 | Version | Supported |
 | ------- | --------- |
-| 1.5.4   | Yes       |
-| < 1.5.4 | No        |
-
-Your installed version is shown at the bottom of the settings panel.
+| 2.0.0   | Yes       |
+| < 2.0.0 | No        |
 
 ## Reporting a vulnerability
 
 Please report privately rather than opening a public issue, using
-[GitHub's private vulnerability reporting](https://github.com/twalichiewicz/HNewhere/security/advisories/new)
+[GitHub's private vulnerability reporting](https://github.com/byt3h3ad/HNeverywhere/security/advisories/new)
 on this repository.
 
 Include what you need to reproduce it: the page or page type, your browser and
@@ -29,40 +27,36 @@ you will be credited in the changelog unless you would rather not be.
 
 ## What this script can do
 
-Worth stating plainly, because the permissions are broad by necessity:
+Worth stating plainly, because the match pattern is broad by necessity:
 
-- **It runs on every `http` and `https` page** you visit, injected by your
-  userscript manager.
-- **It can make cross-origin requests**, via `GM.xmlHttpRequest`, restricted by
-  the `@connect` header to three hosts: `hn.algolia.com`,
-  `hacker-news.firebaseio.com`, and `news.ycombinator.com`.
-- **It stores data locally** through `GM.getValue` / `GM.setValue` — settings,
-  per-site sidebar widths, collapsed threads, seen-comment timestamps, and
-  remembered votes. Nothing is sent anywhere except the three hosts above.
-- **There is no backend, no analytics, and no telemetry.** No one but you and
-  Hacker News sees which pages you look up.
+- **It runs on eligible public `http` and `https` pages** you visit, injected by
+your userscript manager.
+- **It can make cross-origin requests** through `GM.xmlHttpRequest`, restricted
+by the `@connect` header to `hn.algolia.com`. It searches the current page URL,
+falling back to its normalized form only when the direct lookup finds no match.
+- **It opens a link only when you click it.** The orange `HN` link points to the
+matching Hacker News item page in a new tab. No action is taken with your HN
+account and the script never reads credentials or cookies.
+- **There is no backend, analytics, or telemetry.** No one but you and Hacker
+News' search provider sees which pages are looked up.
 
 ## Design decisions that limit the blast radius
 
-- **Sensitive sites are excluded** both in the userscript header and at runtime.
-  `isHiddenSite()` blocks private and single-label hostnames, plus a list
-  covering webmail, banking, auth flows, cloud consoles, and PDFs. A blocked page
-  performs no lookup, renders nothing, and writes no stored state.
-- **Credentials never leave Hacker News.** Voting, submitting, and commenting are
-  performed in a popup window on `news.ycombinator.com` using your existing
-  session there. The script never handles your HN password, and never posts your
-  session cookie anywhere.
-- **Comment HTML from Hacker News is sanitized** before being inserted, through
-  an allowlist of tags and attributes.
-- **The UI renders inside shadow roots**, so page styles and page scripts do not
-  reach into it by accident, and its styles do not leak onto the page.
+- **Sensitive sites are excluded** in both the userscript header and at runtime.
+`isHiddenSite()` blocks private and single-label hostnames, plus common webmail,
+banking, auth, cloud-console, document-editing, chat, payment, and search
+surfaces. A blocked page makes no lookup and renders nothing.
+- **Hacker News itself is excluded.** HNewhere does not run on
+`news.ycombinator.com`; it opens an ordinary browser link there after an
+explicit click.
+- **The rendered surface is one inert link.** It creates no embedded content,
+comment HTML, forms, storage state, or shadow-DOM UI.
 - **`@noframes`** keeps it out of iframes.
 
 ## Out of scope
 
-- Vulnerabilities in your userscript manager, browser, or Hacker News itself —
-  please report those to their maintainers.
-- The script's ability to read pages you visit. That is inherent to what a
-  userscript is, and is disclosed above rather than treated as a flaw. If you
-  would rather it not run somewhere, hide it on that site from the header button,
-  or narrow the `@include` rules in your manager.
+- Vulnerabilities in your userscript manager, browser, Algolia, or Hacker News
+itself — please report those to their maintainers.
+- The script's ability to read the URL of an eligible page. That is inherent to
+looking up that page's Hacker News discussion. If you do not want a page looked
+up, narrow the `@include` rules in your userscript manager.

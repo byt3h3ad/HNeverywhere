@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The version in `HNewhere.user.js`'s `@version` header is what userscript managers
 use to detect updates, so every release bumps it.
 
+
+## [2.0.0] — 2026-08-04
+
+### Changed
+
+- **Open the Hacker News thread instead of embedding it.** When a matching
+  submission exists, HNewhere now shows one orange `HN` link. It opens a
+  matching item page in a new tab and leaves the article in place.
+
+### Removed
+
+- The sidebar, embedded comments, annotations, vote/comment/submit bridges,
+  reading queue, settings, local storage, Firebase requests, and direct
+  `news.ycombinator.com` userscript access.
+
+  The userscript now only searches Algolia for matching HN submissions and
+  renders a link when it finds one.
+
 ## [1.5.8] — 2026-08-02
 
 ### Added
@@ -594,6 +612,7 @@ Releases before 1.4.7 are recorded in the
 commit history. Entries for 1.4.7 through 1.5.3 are summarized from their release
 commits rather than written at the time.
 
+[2.0.0]: https://github.com/twalichiewicz/HNewhere/compare/v1.5.8...v2.0.0
 [1.5.7]: https://github.com/twalichiewicz/HNewhere/compare/v1.5.6...v1.5.7
 [1.5.6]: https://github.com/twalichiewicz/HNewhere/compare/v1.5.5...v1.5.6
 [1.5.5]: https://github.com/twalichiewicz/HNewhere/compare/v1.5.4...v1.5.5
