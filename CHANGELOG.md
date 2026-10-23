@@ -9,6 +9,28 @@ The version in `HNewhere.user.js`'s `@version` header is what userscript manager
 use to detect updates, so every release bumps it.
 
 
+## [2.1.0] — 2026-10-23
+
+### Added
+
+- **Single-page-app navigation.** The URL is polled (plus `popstate` and the
+  Navigation API where available), so the `HN` link updates when a site changes
+  pages without a reload. Stale lookups are discarded.
+- **Canonical URL matching.** When `link[rel=canonical]` or `og:url` names the
+  same page, query parameters it doesn't carry are ignored in the lookup.
+- **Archive pages.** On archive.is/ph/today and web.archive.org, the original
+  article's discussion is also looked up.
+
+### Changed
+
+- Tracking parameters now match `utm_*` and `syn-*` by prefix.
+
+### Fixed
+
+- The fallback lookup comment and condition disagreed; the normalized-URL
+  retry now simply runs whenever the first query finds nothing.
+
+
 ## [2.0.0] — 2026-08-04
 
 ### Changed

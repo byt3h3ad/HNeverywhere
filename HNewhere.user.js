@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         HNewhere
 // @namespace    https://github.com/byt3h3ad/HNeverywhere
-// @version      2.0.0
+// @version      2.1.0
 // @license      MIT
 // @updateURL    https://raw.githubusercontent.com/byt3h3ad/HNeverywhere/main/HNewhere.user.js
 // @downloadURL  https://raw.githubusercontent.com/byt3h3ad/HNeverywhere/main/HNewhere.user.js
@@ -56,15 +56,27 @@
 
 	const HN_ORIGIN = "https://news.ycombinator.com";
 	const BUTTON_ID = "hnewhere-thread-link";
-	const TRACKING_PARAMS = new Set([
-		"utm_source",
-		"utm_medium",
-		"utm_campaign",
-		"utm_term",
-		"utm_content",
-		"fbclid",
-		"gclid",
+	const TRACKING_PARAMS = new Set(["fbclid", "gclid"]);
+	const TRACKING_PATTERNS = [/^utm_/, /^syn-/];
+	const ARCHIVE_HOSTS = new Set([
+		"archive.is",
+		"archive.today",
+		"archive.ph",
+		"archive.li",
+		"archive.vn",
+		"archive.md",
+		"archive.fo",
+		"web.archive.org",
 	]);
+
+	function isTrackingParam(key) {
+		const name = key.toLowerCase();
+
+		return (
+			TRACKING_PARAMS.has(name) ||
+			TRACKING_PATTERNS.some((pattern) => pattern.test(name))
+		);
+	}
 	const HOST_ALIASES = new Map([
 		["x.com", "twitter.com"],
 		["www.x.com", "twitter.com"],
@@ -97,7 +109,7 @@
 			const parsed = new URL(url);
 
 			for (const key of [...parsed.searchParams.keys()]) {
-				if (TRACKING_PARAMS.has(key.toLowerCase())) {
+				if (isTrackingParam(key)) {
 					parsed.searchParams.delete(key);
 				}
 			}
@@ -140,6 +152,93 @@
 		} catch {
 			return true;
 		}
+	}
+
+	function canonicalHint() {
+		return (
+			document.querySelector('link[rel~="canonical" i]')?.href ||
+			document.querySelector('meta[property="og:url" i]')?.content ||
+			""
+		);
+	}
+
+	// Trust the canonical URL only when it names this same page; then drop query
+	// parameters it does not carry (session ids, referrers, unknown trackers).
+	function canonicalPageURL(href, hint) {
+		if (!hint) {
+			return href;
+		}
+
+		try {
+			const page = new URL(href);
+			const named = new URL(hint, href);
+			const bare = (path) => path.replace(/\/+$/, "");
+
+			if (
+				named.hostname.toLowerCase() !== page.hostname.toLowerCase() ||
+				bare(named.pathname) !== bare(page.pathname)
+			) {
+				return href;
+			}
+
+			for (const [key, value] of named.searchParams) {
+				if (page.searchParams.get(key) !== value) {
+					return href;
+				}
+			}
+
+			for (const key of [...page.searchParams.keys()]) {
+				if (!named.searchParams.has(key)) {
+					page.searchParams.delete(key);
+				}
+			}
+
+			return page.href;
+		} catch {
+			return href;
+		}
+	}
+
+	function archivedOriginalURL(href) {
+		try {
+			const here = new URL(href);
+
+			if (!ARCHIVE_HOSTS.has(here.hostname.toLowerCase().replace(/^www\./, ""))) {
+				return null;
+			}
+
+			let path = here.pathname;
+
+			try {
+				path = decodeURIComponent(path);
+			} catch {}
+
+			const found = path.match(/\/(https?:\/{1,2}.+)$/i);
+
+			if (!found) {
+				return null;
+			}
+
+			const original = new URL(
+				found[1].replace(/^(https?:)\/(?!\/)/i, "$1//") + here.search,
+			);
+
+			return ARCHIVE_HOSTS.has(original.hostname.toLowerCase()) ||
+				isHiddenSite(original.href)
+				? null
+				: original.href;
+		} catch {
+			return null;
+		}
+	}
+
+	function pageAddresses() {
+		const here = canonicalPageURL(location.href, canonicalHint());
+		const original = archivedOriginalURL(location.href);
+
+		return original && normalizeURL(original) !== normalizeURL(here)
+			? [here, original]
+			: [here];
 	}
 
 	function request(url) {
@@ -188,14 +287,39 @@
 		};
 		const rawMatches = await search(url);
 
-		if (rawMatches.length || url === target) {
-			return rawMatches.sort(compareStoriesByDiscussion);
+		if (rawMatches.length) {
+			return rawMatches;
 		}
 
 		// A campaign parameter, redirect, or canonical URL can make the address in
-		// hand differ from the HN submission. Spend the second request only when the
-		// direct lookup found nothing.
-		return (await search(target)).sort(compareStoriesByDiscussion);
+		// hand differ from the HN submission, so retry with the normalized form.
+		return search(target);
+	}
+
+	// Remembers lookups for the life of the tab only: nothing is persisted, and
+	// revisiting a URL (back/forward, repeated replaceState) costs no requests.
+	const lookups = new Map();
+
+	function findAllCached(urls) {
+		const key = urls.map(normalizeURL).join("\n");
+
+		if (!lookups.has(key)) {
+			lookups.set(key, findAll(urls));
+		}
+
+		return lookups.get(key);
+	}
+
+	async function findAll(urls) {
+		const found = new Map();
+
+		for (const stories of await Promise.all(urls.map(findHN))) {
+			for (const story of stories) {
+				found.set(story.objectID, story);
+			}
+		}
+
+		return [...found.values()].sort(compareStoriesByDiscussion);
 	}
 
 	function createThreadLink(stories) {
@@ -243,17 +367,66 @@
 		document.body.appendChild(link);
 	}
 
-	async function init() {
+	const SETTLE_MS = 250;
+	const POLL_MS = 400;
+	const BACKSTOP_POLL_MS = 2000;
+	let run = 0;
+	let shownHref = "";
+	let timer = 0;
+
+	function removeThreadLink() {
+		document.getElementById(BUTTON_ID)?.remove();
+	}
+
+	async function refresh() {
+		const id = ++run;
+
+		removeThreadLink();
+
 		if (isHiddenSite()) {
 			return;
 		}
 
-		const stories = await findHN(location.href);
+		const stories = await findAllCached(pageAddresses());
 
-		if (stories.length) {
+		// A newer navigation superseded this lookup.
+		if (id === run && stories.length) {
 			createThreadLink(stories);
 		}
 	}
 
-	init().catch(console.error);
+	// Userscript managers isolate this script from the page, so wrapping
+	// history.pushState here would not see the page's own calls. Poll the URL
+	// instead; the Navigation API only makes detection faster where available.
+	function checkNavigation() {
+		if (location.href === shownHref) {
+			return;
+		}
+
+		const changed = normalizeURL(location.href) !== normalizeURL(shownHref);
+
+		shownHref = location.href;
+
+		if (!changed) {
+			return;
+		}
+
+		clearTimeout(timer);
+		timer = setTimeout(() => refresh().catch(console.error), SETTLE_MS);
+	}
+
+	function init() {
+		shownHref = location.href;
+		refresh().catch(console.error);
+		window.addEventListener("popstate", checkNavigation);
+		// Navigation events are untested across every manager's sandbox, so a slow
+		// poll stays as a backstop; without the API it polls faster.
+		if (window.navigation) {
+			window.navigation.addEventListener("currententrychange", checkNavigation);
+		}
+
+		setInterval(checkNavigation, window.navigation ? BACKSTOP_POLL_MS : POLL_MS);
+	}
+
+	init();
 })();
